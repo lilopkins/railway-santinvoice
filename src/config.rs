@@ -1,5 +1,5 @@
 use anyhow::{Context, anyhow, bail};
-use chrono::{Days, NaiveDate, Utc};
+use chrono::{Datelike, Days, NaiveDate, Utc};
 use std::env;
 
 #[derive(Clone, Debug)]
@@ -79,8 +79,8 @@ impl Config {
             workspace_id: env::var("RAILWAY_WORKSPACE_ID").ok(),
             project_id: required_env("RAILWAY_PROJECT_ID")?,
             project_name: required_env("RAILWAY_PROJECT_NAME")?,
-            billing_from: parse_date_env("RAILWAY_BILLING_FROM")?,
-            billing_to: parse_date_env("RAILWAY_BILLING_TO")?,
+            billing_from: first_day_of_previous_month()?,
+            billing_to: last_day_of_previous_month()?,
             currency: env::var("RAILWAY_BILLING_CURRENCY").unwrap_or_else(|_| "GBP".to_string()),
         };
 
@@ -186,6 +186,32 @@ fn default_due_date() -> anyhow::Result<NaiveDate> {
     today
         .checked_add_days(Days::new(14))
         .ok_or_else(|| anyhow!("failed to calculate default invoice due date"))
+}
+
+fn first_day_of_previous_month() -> anyhow::Result<NaiveDate> {
+    let today = Utc::now().date_naive();
+    let first_day_of_current_month = NaiveDate::from_ymd_opt(today.year(), today.month(), 1)
+        .ok_or_else(|| anyhow!("failed to calculate first day of current month"))?;
+    let last_day_of_previous_month = first_day_of_current_month
+        .checked_sub_days(Days::new(1))
+        .ok_or_else(|| anyhow!("failed to calculate last day of previous month"))?;
+
+    NaiveDate::from_ymd_opt(
+        last_day_of_previous_month.year(),
+        last_day_of_previous_month.month(),
+        1,
+    )
+    .ok_or_else(|| anyhow!("failed to calculate first day of previous month"))
+}
+
+fn last_day_of_previous_month() -> anyhow::Result<NaiveDate> {
+    let today = Utc::now().date_naive();
+    let first_day_of_current_month = NaiveDate::from_ymd_opt(today.year(), today.month(), 1)
+        .ok_or_else(|| anyhow!("failed to calculate first day of current month"))?;
+
+    first_day_of_current_month
+        .checked_sub_days(Days::new(1))
+        .ok_or_else(|| anyhow!("failed to calculate last day of previous month"))
 }
 
 fn billing_details_default(config: &RailwayConfig) -> String {

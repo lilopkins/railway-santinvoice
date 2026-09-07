@@ -5,7 +5,7 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 ## Flow
 
 1. Read required configuration from environment variables.
-2. Query Railway GraphQL for the configured project and billing period.
+2. Query Railway GraphQL for the configured project and the previous calendar month.
 3. Request an OAuth access token from the configured OIDC token endpoint.
 4. Build a SantInvoice XML invoice with a single summarized line item for the billing period.
 5. Submit the invoice to SantInvoice with an idempotency key.
@@ -20,8 +20,6 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 | `RAILWAY_WORKSPACE_ID` | Optional Railway workspace identifier, used when the token or usage query needs workspace scoping. |
 | `RAILWAY_PROJECT_ID` | Railway project identifier to bill. |
 | `RAILWAY_PROJECT_NAME` | Human-readable project name used in invoice text. |
-| `RAILWAY_BILLING_FROM` | Billing period start date in `YYYY-MM-DD`. |
-| `RAILWAY_BILLING_TO` | Billing period end date in `YYYY-MM-DD`. |
 | `OIDC_TOKEN_URL` | OIDC token endpoint for client-credentials access tokens. |
 | `OIDC_CLIENT_ID` | OIDC client ID. |
 | `OIDC_CLIENT_SECRET` | OIDC client secret. |
@@ -86,4 +84,4 @@ The image is intended for cronjob-style execution in container platforms such as
 - The app is intentionally configured only through environment variables.
 - SantInvoice submission is the primary success condition.
 - PDF download and SMTP delivery are best-effort follow-up steps once submission succeeds.
-- The current implementation assumes Railway billing can be represented as one summarized invoice line item for the selected period.
+- The current implementation automatically invoices the previous calendar month and represents Railway billing as one summarized invoice line item for that period.
