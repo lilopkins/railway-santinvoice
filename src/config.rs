@@ -1,5 +1,6 @@
 use anyhow::{Context, anyhow, bail};
 use chrono::{Datelike, Days, NaiveDate, Utc};
+use reqwest::Url;
 use std::env;
 
 #[derive(Clone, Debug)]
@@ -71,17 +72,17 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         let railway = RailwayConfig {
-            graphql_url: required_env("RAILWAY_GRAPHQL_URL")?,
-            auth_header_name: env::var("RAILWAY_AUTH_HEADER_NAME")
-                .unwrap_or_else(|_| "Authorization".to_string()),
-            auth_scheme: env::var("RAILWAY_AUTH_SCHEME").unwrap_or_else(|_| "Bearer".to_string()),
+            graphql_url: required_absolute_url("RAILWAY_GRAPHQL_URL")?,
+            auth_header_name: optional_env("RAILWAY_AUTH_HEADER_NAME")
+                .unwrap_or_else(|| "Authorization".to_string()),
+            auth_scheme: optional_env("RAILWAY_AUTH_SCHEME").unwrap_or_else(|| "Bearer".to_string()),
             token: required_env("RAILWAY_TOKEN")?,
-            workspace_id: env::var("RAILWAY_WORKSPACE_ID").ok(),
+            workspace_id: optional_env("RAILWAY_WORKSPACE_ID"),
             project_id: required_env("RAILWAY_PROJECT_ID")?,
             project_name: required_env("RAILWAY_PROJECT_NAME")?,
             billing_from: first_day_of_previous_month()?,
             billing_to: last_day_of_previous_month()?,
-            currency: env::var("RAILWAY_BILLING_CURRENCY").unwrap_or_else(|_| "GBP".to_string()),
+            currency: optional_env("RAILWAY_BILLING_CURRENCY").unwrap_or_else(|| "GBP".to_string()),
         };
 
         if railway.billing_to < railway.billing_from {
@@ -89,15 +90,15 @@ impl Config {
         }
 
         let oidc = OidcConfig {
-            token_url: required_env("OIDC_TOKEN_URL")?,
+            token_url: required_absolute_url("OIDC_TOKEN_URL")?,
             client_id: required_env("OIDC_CLIENT_ID")?,
             client_secret: required_env("OIDC_CLIENT_SECRET")?,
-            scope: env::var("OIDC_SCOPE").ok(),
-            audience: env::var("OIDC_AUDIENCE").ok(),
+            scope: optional_env("OIDC_SCOPE"),
+            audience: optional_env("OIDC_AUDIENCE"),
         };
 
         let santinvoice = SantInvoiceConfig {
-            base_url: required_env("SANTINVOICE_BASE_URL")?,
+            base_url: required_absolute_url("SANTINVOICE_BASE_URL")?,
         };
 
         let invoice = InvoiceConfig {
@@ -109,14 +110,14 @@ impl Config {
             customer_email: required_env("INVOICE_CUSTOMER_EMAIL")?,
             payment_due_by: parse_date_env("INVOICE_PAYMENT_DUE_BY")
                 .or_else(|_| default_due_date())?,
-            currency: env::var("INVOICE_CURRENCY").unwrap_or_else(|_| railway.currency.clone()),
-            notes: env::var("INVOICE_NOTES").ok(),
-            service_summary: env::var("INVOICE_SERVICE_SUMMARY")
-                .unwrap_or_else(|_| format!("Railway billing for {}", railway.project_name)),
-            service_details: env::var("INVOICE_SERVICE_DETAILS")
-                .unwrap_or_else(|_| billing_details_default(&railway)),
-            idempotency_prefix: env::var("INVOICE_IDEMPOTENCY_PREFIX")
-                .unwrap_or_else(|_| "railway-santinvoice".to_string()),
+            currency: optional_env("INVOICE_CURRENCY").unwrap_or_else(|| railway.currency.clone()),
+            notes: optional_env("INVOICE_NOTES"),
+            service_summary: optional_env("INVOICE_SERVICE_SUMMARY")
+                .unwrap_or_else(|| format!("Railway billing for {}", railway.project_name)),
+            service_details: optional_env("INVOICE_SERVICE_DETAILS")
+                .unwrap_or_else(|| billing_details_default(&railway)),
+            idempotency_prefix: optional_env("INVOICE_IDEMPOTENCY_PREFIX")
+                .unwrap_or_else(|| "railway-santinvoice".to_string()),
         };
 
         let pdf_email = if env_flag("PDF_EMAIL_ENABLED") {
@@ -128,9 +129,9 @@ impl Config {
                 smtp_username: required_env("SMTP_USERNAME")?,
                 smtp_password: required_env("SMTP_PASSWORD")?,
                 smtp_starttls: env_flag_default("SMTP_STARTTLS", true),
-                subject: env::var("PDF_EMAIL_SUBJECT")
-                    .unwrap_or_else(|_| format!("Invoice for {}", railway.project_name)),
-                body: env::var("PDF_EMAIL_BODY").unwrap_or_else(|_| {
+                subject: optional_env("PDF_EMAIL_SUBJECT")
+                    .unwrap_or_else(|| format!("Invoice for {}", railway.project_name)),
+                body: optional_env("PDF_EMAIL_BODY").unwrap_or_else(|| {
                     format!(
                         "Please find attached the invoice PDF for {}.",
                         railway.project_name
@@ -152,7 +153,45 @@ impl Config {
 }
 
 fn required_env(name: &str) -> anyhow::Result<String> {
-    env::var(name).with_context(|| format!("missing required environment variable {name}"))
+    let value = env::var(name).with_context(|| format!("missing required environment variable {name}"))?;
+    Ok(normalize_env_value(&value))
+}
+
+fn normalize_env_value(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() < 2 {
+        return trimmed.to_string();
+    }
+
+    let first = trimmed.as_bytes()[0] as char;
+    let last = trimmed.as_bytes()[trimmed.len() - 1] as char;
+
+    if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+        return trimmed[1..trimmed.len() - 1].to_string();
+    }
+
+    trimmed.to_string()
+}
+
+fn optional_env(name: &str) -> Option<String> {
+    let value = env::var(name).ok()?;
+    Some(normalize_env_value(&value))
+}
+
+fn required_absolute_url(name: &str) -> anyhow::Result<String> {
+    let value = required_env(name)?;
+    let parsed = Url::parse(&value)
+        .with_context(|| format!("{name} must be an absolute URL, got {value:?}"))?;
+
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        bail!("{name} must use http or https, got {:?}", parsed.scheme());
+    }
+
+    if parsed.host_str().is_none() {
+        bail!("{name} must include a host, got {value:?}");
+    }
+
+    Ok(value)
 }
 
 fn parse_date_env(name: &str) -> anyhow::Result<NaiveDate> {
@@ -162,7 +201,7 @@ fn parse_date_env(name: &str) -> anyhow::Result<NaiveDate> {
 }
 
 fn parse_u16_env(name: &str) -> Option<u16> {
-    env::var(name).ok()?.parse().ok()
+    optional_env(name)?.parse().ok()
 }
 
 fn env_flag(name: &str) -> bool {
@@ -170,8 +209,7 @@ fn env_flag(name: &str) -> bool {
 }
 
 fn env_flag_default(name: &str, default: bool) -> bool {
-    env::var(name)
-        .ok()
+    optional_env(name)
         .map(|value| {
             matches!(
                 value.to_ascii_lowercase().as_str(),
@@ -219,4 +257,19 @@ fn billing_details_default(config: &RailwayConfig) -> String {
         "Summarized Railway usage charges for project {} covering {} to {}.",
         config.project_name, config.billing_from, config.billing_to
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_env_value;
+
+    #[test]
+    fn normalize_env_value_strips_matching_quotes() {
+        assert_eq!(
+            normalize_env_value("\"https://backboard.railway.com/graphql/v2\""),
+            "https://backboard.railway.com/graphql/v2"
+        );
+        assert_eq!(normalize_env_value("'https://example.com'"), "https://example.com");
+        assert_eq!(normalize_env_value("https://example.com"), "https://example.com");
+    }
 }

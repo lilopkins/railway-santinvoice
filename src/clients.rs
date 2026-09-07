@@ -152,11 +152,7 @@ impl RailwayClient {
         query: &str,
         variables: serde_json::Value,
     ) -> anyhow::Result<GraphQlResponse<T>> {
-        let auth_value = if self.config.auth_scheme.is_empty() {
-            self.config.token.clone()
-        } else {
-            format!("{} {}", self.config.auth_scheme, self.config.token)
-        };
+        let auth_value = build_railway_auth_value(&self.config.token, &self.config.auth_scheme);
 
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -205,6 +201,33 @@ impl RailwayClient {
         }
 
         Ok(payload)
+    }
+}
+
+fn build_railway_auth_value(token: &str, scheme: &str) -> String {
+    let token = token.trim();
+    let lower = token.to_ascii_lowercase();
+    if lower.starts_with("bearer ") {
+        return token.to_string();
+    }
+
+    let scheme = scheme.trim();
+    if scheme.is_empty() {
+        token.to_string()
+    } else {
+        format!("{} {}", scheme.trim(), token)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_railway_auth_value;
+
+    #[test]
+    fn railway_auth_value_handles_bare_and_prefixed_tokens() {
+        assert_eq!(build_railway_auth_value("abc123", "Bearer"), "Bearer abc123");
+        assert_eq!(build_railway_auth_value("Bearer abc123", "Bearer"), "Bearer abc123");
+        assert_eq!(build_railway_auth_value("abc123", ""), "abc123");
     }
 }
 
