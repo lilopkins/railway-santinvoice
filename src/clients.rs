@@ -34,21 +34,40 @@ impl RailwayClient {
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
         let query = r#"
-            query ProjectInvoiceData($projectId: String!, $from: DateTime!, $to: DateTime!) {
+            query ProjectInvoiceData(
+              $projectId: String!,
+              $workspaceId: String,
+              $startDate: DateTime!,
+              $endDate: DateTime!,
+              $measurements: [MetricMeasurement!]!,
+              $groupBy: [MetricTag!]!
+            ) {
               project(id: $projectId) {
                 id
                 name
-                usageCosts(startDate: $from, endDate: $to) {
-                  totalCost
-                }
+              }
+              usage(
+                projectId: $projectId
+                workspaceId: $workspaceId
+                startDate: $startDate
+                endDate: $endDate
+                includeDeleted: false
+                measurements: $measurements
+                groupBy: $groupBy
+              ) {
+                measurement
+                value
               }
             }
         "#;
 
         let variables = json!({
             "projectId": self.config.project_id,
-            "from": self.config.billing_from.and_hms_opt(0, 0, 0).unwrap().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-            "to": self.config.billing_to.and_hms_opt(23, 59, 59).unwrap().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "workspaceId": self.config.workspace_id,
+            "startDate": self.config.billing_from.and_hms_opt(0, 0, 0).unwrap().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "endDate": self.config.billing_to.and_hms_opt(23, 59, 59).unwrap().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "measurements": ["COST"],
+            "groupBy": ["PROJECT_ID"],
         });
 
         let response = self
@@ -75,20 +94,26 @@ impl RailwayClient {
             bail!("Railway GraphQL returned errors: {summary}");
         }
 
-        let project = payload
+        let data = payload
             .data
-            .and_then(|data| data.project)
+            .ok_or_else(|| anyhow!("Railway GraphQL response did not include data"))?;
+
+        let project = data
+            .project
             .ok_or_else(|| anyhow!("Railway GraphQL response did not include project data"))?;
 
-        let total_cost = project
-            .usage_costs
-            .total_cost
-            .parse::<f64>()
-            .with_context(|| {
-                format!(
-                    "invalid Railway totalCost {:?}",
-                    project.usage_costs.total_cost
-                )
+        let usage_rows = data
+            .usage
+            .ok_or_else(|| anyhow!("Railway GraphQL response did not include usage data"))?;
+
+        let total_cost = usage_rows
+            .into_iter()
+            .filter(|row| row.measurement.eq_ignore_ascii_case("COST"))
+            .try_fold(0.0, |acc, row| {
+                row.value
+                    .parse::<f64>()
+                    .map(|value| acc + value)
+                    .with_context(|| format!("invalid Railway usage value {:?}", row.value))
             })?;
 
         Ok(ProjectBilling {
@@ -258,18 +283,17 @@ struct GraphQlError {
 #[derive(Debug, Deserialize)]
 struct RailwayProjectEnvelope {
     project: Option<RailwayProject>,
+    usage: Option<Vec<RailwayUsageRow>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RailwayProject {
     id: String,
     name: String,
-    #[serde(rename = "usageCosts")]
-    usage_costs: RailwayUsageCosts,
 }
 
 #[derive(Debug, Deserialize)]
-struct RailwayUsageCosts {
-    #[serde(rename = "totalCost")]
-    total_cost: String,
+struct RailwayUsageRow {
+    measurement: String,
+    value: String,
 }

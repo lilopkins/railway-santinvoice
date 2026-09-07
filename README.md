@@ -17,6 +17,7 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 | --- | --- |
 | `RAILWAY_GRAPHQL_URL` | Railway GraphQL endpoint, for example `https://backboard.railway.com/graphql/v2`. |
 | `RAILWAY_TOKEN` | Railway API token. |
+| `RAILWAY_WORKSPACE_ID` | Optional Railway workspace identifier, used when the token or usage query needs workspace scoping. |
 | `RAILWAY_PROJECT_ID` | Railway project identifier to bill. |
 | `RAILWAY_PROJECT_NAME` | Human-readable project name used in invoice text. |
 | `RAILWAY_BILLING_FROM` | Billing period start date in `YYYY-MM-DD`. |
