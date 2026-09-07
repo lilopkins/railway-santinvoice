@@ -19,6 +19,139 @@ impl RailwayClient {
     }
 
     pub async fn fetch_project_billing(&self) -> anyhow::Result<ProjectBilling> {
+        let project = self.fetch_project_identity().await?;
+        let total_cost = self.fetch_project_cost().await?;
+
+        Ok(ProjectBilling {
+            project_id: project.id,
+            project_name: project.name,
+            amount: Money {
+                currency: self.config.currency.clone(),
+                value: total_cost,
+            },
+            billing_from: self.config.billing_from,
+            billing_to: self.config.billing_to,
+        })
+    }
+
+    async fn fetch_project_identity(&self) -> anyhow::Result<RailwayProject> {
+        let payload: GraphQlResponse<ProjectOnlyEnvelope> = self
+            .post_graphql(
+                r#"
+                    query ProjectIdentity($projectId: String!) {
+                      project(id: $projectId) {
+                        id
+                        name
+                      }
+                    }
+                "#,
+                json!({ "projectId": self.config.project_id }),
+            )
+            .await?;
+
+        payload
+            .data
+            .and_then(|data| data.project)
+            .ok_or_else(|| anyhow!("Railway GraphQL response did not include project data"))
+    }
+
+    async fn fetch_project_cost(&self) -> anyhow::Result<f64> {
+        let queries = [
+            UsageQueryAttempt {
+                measurement: "COST",
+                group_by: vec!["PROJECT_ID"],
+            },
+            UsageQueryAttempt {
+                measurement: "COST",
+                group_by: vec![],
+            },
+            UsageQueryAttempt {
+                measurement: "TOTAL_COST",
+                group_by: vec!["PROJECT_ID"],
+            },
+            UsageQueryAttempt {
+                measurement: "TOTAL_COST",
+                group_by: vec![],
+            },
+        ];
+
+        let mut failures = Vec::new();
+        for attempt in queries {
+            match self.try_usage_query(&attempt).await {
+                Ok(total) => return Ok(total),
+                Err(error) => failures.push(error.to_string()),
+            }
+        }
+
+        bail!(
+            "Railway billing query failed for all known metric variants: {}",
+            failures.join(" | ")
+        )
+    }
+
+    async fn try_usage_query(&self, attempt: &UsageQueryAttempt<'_>) -> anyhow::Result<f64> {
+        let payload: GraphQlResponse<UsageEnvelope> = self
+            .post_graphql(
+                r#"
+                    query ProjectUsage(
+                      $projectId: String!,
+                      $workspaceId: String,
+                      $startDate: DateTime,
+                      $endDate: DateTime,
+                      $measurements: [MetricMeasurement!]!,
+                      $groupBy: [MetricTag]!,
+                      $includeDeleted: Boolean
+                    ) {
+                      usage(
+                        projectId: $projectId
+                        workspaceId: $workspaceId
+                        startDate: $startDate
+                        endDate: $endDate
+                        includeDeleted: $includeDeleted
+                        measurements: $measurements
+                        groupBy: $groupBy
+                      ) {
+                        measurement
+                        value
+                      }
+                    }
+                "#,
+                json!({
+                    "projectId": self.config.project_id,
+                    "workspaceId": self.config.workspace_id,
+                    "startDate": self.config.billing_from.and_hms_opt(0, 0, 0).unwrap().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                    "endDate": self.config.billing_to.and_hms_opt(23, 59, 59).unwrap().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                    "measurements": [attempt.measurement],
+                    "groupBy": attempt.group_by,
+                    "includeDeleted": false,
+                }),
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "usage query failed for measurement {} and groupBy {:?}",
+                    attempt.measurement, attempt.group_by
+                )
+            })?;
+
+        let usage_rows = payload
+            .data
+            .and_then(|data| data.usage)
+            .ok_or_else(|| anyhow!("Railway GraphQL response did not include usage data"))?;
+
+        usage_rows.into_iter().try_fold(0.0, |acc, row| {
+            row.value
+                .parse::<f64>()
+                .map(|value| acc + value)
+                .with_context(|| format!("invalid Railway usage value {:?}", row.value))
+        })
+    }
+
+    async fn post_graphql<T: for<'de> Deserialize<'de>>(
+        &self,
+        query: &str,
+        variables: serde_json::Value,
+    ) -> anyhow::Result<GraphQlResponse<T>> {
         let auth_value = if self.config.auth_scheme.is_empty() {
             self.config.token.clone()
         } else {
@@ -33,43 +166,6 @@ impl RailwayClient {
         );
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
-        let query = r#"
-            query ProjectInvoiceData(
-              $projectId: String!,
-              $workspaceId: String,
-              $startDate: DateTime!,
-              $endDate: DateTime!,
-              $measurements: [MetricMeasurement!]!,
-              $groupBy: [MetricTag!]!
-            ) {
-              project(id: $projectId) {
-                id
-                name
-              }
-              usage(
-                projectId: $projectId
-                workspaceId: $workspaceId
-                startDate: $startDate
-                endDate: $endDate
-                includeDeleted: false
-                measurements: $measurements
-                groupBy: $groupBy
-              ) {
-                measurement
-                value
-              }
-            }
-        "#;
-
-        let variables = json!({
-            "projectId": self.config.project_id,
-            "workspaceId": self.config.workspace_id,
-            "startDate": self.config.billing_from.and_hms_opt(0, 0, 0).unwrap().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-            "endDate": self.config.billing_to.and_hms_opt(23, 59, 59).unwrap().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-            "measurements": ["COST"],
-            "groupBy": ["PROJECT_ID"],
-        });
-
         let response = self
             .http
             .post(&self.config.graphql_url)
@@ -80,52 +176,35 @@ impl RailwayClient {
             .context("failed to call Railway GraphQL API")?;
 
         let status = response.status();
-        let payload: GraphQlResponse<RailwayProjectEnvelope> =
-            response.json().await.with_context(|| {
-                format!("failed to decode Railway GraphQL response with status {status}")
-            })?;
+        let body = response.text().await.with_context(|| {
+            format!("failed to read Railway GraphQL response with status {status}")
+        })?;
 
-        if let Some(errors) = payload.errors {
+        let payload: GraphQlResponse<T> = serde_json::from_str(&body).with_context(|| {
+            format!("failed to decode Railway GraphQL response with status {status}: {body}")
+        })?;
+
+        if let Some(errors) = &payload.errors {
             let summary = errors
-                .into_iter()
-                .map(|error| error.message)
+                .iter()
+                .map(
+                    |error| match (&error.extensions.code, &error.extensions.trace_id) {
+                        (Some(code), Some(trace_id)) => {
+                            format!("{} (code: {code}, traceId: {trace_id})", error.message)
+                        }
+                        (Some(code), None) => format!("{} (code: {code})", error.message),
+                        (None, Some(trace_id)) => {
+                            format!("{} (traceId: {trace_id})", error.message)
+                        }
+                        (None, None) => error.message.clone(),
+                    },
+                )
                 .collect::<Vec<_>>()
                 .join("; ");
             bail!("Railway GraphQL returned errors: {summary}");
         }
 
-        let data = payload
-            .data
-            .ok_or_else(|| anyhow!("Railway GraphQL response did not include data"))?;
-
-        let project = data
-            .project
-            .ok_or_else(|| anyhow!("Railway GraphQL response did not include project data"))?;
-
-        let usage_rows = data
-            .usage
-            .ok_or_else(|| anyhow!("Railway GraphQL response did not include usage data"))?;
-
-        let total_cost = usage_rows
-            .into_iter()
-            .filter(|row| row.measurement.eq_ignore_ascii_case("COST"))
-            .try_fold(0.0, |acc, row| {
-                row.value
-                    .parse::<f64>()
-                    .map(|value| acc + value)
-                    .with_context(|| format!("invalid Railway usage value {:?}", row.value))
-            })?;
-
-        Ok(ProjectBilling {
-            project_id: project.id,
-            project_name: project.name,
-            amount: Money {
-                currency: self.config.currency.clone(),
-                value: total_cost,
-            },
-            billing_from: self.config.billing_from,
-            billing_to: self.config.billing_to,
-        })
+        Ok(payload)
     }
 }
 
@@ -278,11 +357,25 @@ struct GraphQlResponse<T> {
 #[derive(Debug, Deserialize)]
 struct GraphQlError {
     message: String,
+    #[serde(default)]
+    extensions: GraphQlErrorExtensions,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct GraphQlErrorExtensions {
+    #[serde(rename = "code")]
+    code: Option<String>,
+    #[serde(rename = "traceId")]
+    trace_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct RailwayProjectEnvelope {
+struct ProjectOnlyEnvelope {
     project: Option<RailwayProject>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UsageEnvelope {
     usage: Option<Vec<RailwayUsageRow>>,
 }
 
@@ -296,4 +389,9 @@ struct RailwayProject {
 struct RailwayUsageRow {
     measurement: String,
     value: String,
+}
+
+struct UsageQueryAttempt<'a> {
+    measurement: &'a str,
+    group_by: Vec<&'a str>,
 }
