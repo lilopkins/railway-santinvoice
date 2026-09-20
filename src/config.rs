@@ -72,7 +72,7 @@ impl Config {
             token: required_env("RAILWAY_TOKEN")?,
             workspace_id: required_env("RAILWAY_WORKSPACE_ID")?,
             project_id: required_env("RAILWAY_PROJECT_ID")?,
-            project_name: required_env("RAILWAY_PROJECT_NAME")?,
+            project_name: required_env("RAILWAY_TARGET_PROJECT_NAME")?,
             currency: optional_env("RAILWAY_BILLING_CURRENCY").unwrap_or_else(|| "USD".to_string()),
         };
 

@@ -19,7 +19,7 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 | `RAILWAY_TOKEN` | Railway workspace token, without a `Bearer` prefix. The app sends it as `Authorization: Bearer <token>`. |
 | `RAILWAY_WORKSPACE_ID` | Railway workspace identifier. The app uses its billing-period boundary to retrieve the preceding completed period. |
 | `RAILWAY_PROJECT_ID` | Railway project identifier to bill. |
-| `RAILWAY_PROJECT_NAME` | Human-readable project name used in invoice text. |
+| `RAILWAY_TARGET_PROJECT_NAME` | Human-readable project name used in invoice text. |
 | `OIDC_TOKEN_URL` | OIDC token endpoint for client-credentials access tokens. |
 | `OIDC_CLIENT_ID` | OIDC client ID. |
 | `OIDC_CLIENT_SECRET` | OIDC client secret. |
@@ -40,7 +40,7 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 | `OIDC_AUDIENCE` | unset |
 | `INVOICE_PAYMENT_DUE_BY` | 14 days from run date |
 | `INVOICE_NOTES` | unset |
-| `INVOICE_SERVICE_SUMMARY` | `Railway billing for {RAILWAY_PROJECT_NAME}` |
+| `INVOICE_SERVICE_SUMMARY` | `Railway billing for {RAILWAY_TARGET_PROJECT_NAME}` |
 | `INVOICE_SERVICE_DETAILS` | Generated summary including project and date range |
 | `INVOICE_IDEMPOTENCY_PREFIX` | `railway-santinvoice` |
 | `PDF_EMAIL_ENABLED` | `false` |
@@ -51,7 +51,7 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 | `SMTP_USERNAME` | required when PDF email is enabled |
 | `SMTP_PASSWORD` | required when PDF email is enabled |
 | `SMTP_STARTTLS` | `true` |
-| `PDF_EMAIL_SUBJECT` | `Invoice for {RAILWAY_PROJECT_NAME}` |
+| `PDF_EMAIL_SUBJECT` | `Invoice for {RAILWAY_TARGET_PROJECT_NAME}` |
 | `PDF_EMAIL_BODY` | Simple attached-invoice message |
 
 ## Run
