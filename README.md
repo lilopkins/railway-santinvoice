@@ -5,7 +5,7 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 ## Flow
 
 1. Read required configuration from environment variables.
-2. Query Railway GraphQL for the configured project and the previous calendar month.
+2. Query Railway GraphQL for the configured project's previous completed billing period.
 3. Request an OAuth access token from the configured OIDC token endpoint.
 4. Build a SantInvoice XML invoice with a single summarized line item for the billing period.
 5. Submit the invoice to SantInvoice with an idempotency key.
@@ -16,8 +16,8 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 | Variable | Purpose |
 | --- | --- |
 | `RAILWAY_GRAPHQL_URL` | Railway GraphQL endpoint, for example `https://backboard.railway.com/graphql/v2`. |
-| `RAILWAY_TOKEN` | Railway API token. |
-| `RAILWAY_WORKSPACE_ID` | Optional Railway workspace identifier, used when the token or usage query needs workspace scoping. |
+| `RAILWAY_TOKEN` | Railway workspace token, without a `Bearer` prefix. The app sends it as `Authorization: Bearer <token>`. |
+| `RAILWAY_WORKSPACE_ID` | Railway workspace identifier. The app uses its billing-period boundary to retrieve the preceding completed period. |
 | `RAILWAY_PROJECT_ID` | Railway project identifier to bill. |
 | `RAILWAY_PROJECT_NAME` | Human-readable project name used in invoice text. |
 | `OIDC_TOKEN_URL` | OIDC token endpoint for client-credentials access tokens. |
@@ -35,13 +35,10 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 
 | Variable | Default |
 | --- | --- |
-| `RAILWAY_AUTH_HEADER_NAME` | `Authorization` |
-| `RAILWAY_AUTH_SCHEME` | `Bearer` |
 | `RAILWAY_BILLING_CURRENCY` | `GBP` |
 | `OIDC_SCOPE` | unset |
 | `OIDC_AUDIENCE` | unset |
 | `INVOICE_PAYMENT_DUE_BY` | 14 days from run date |
-| `INVOICE_CURRENCY` | `RAILWAY_BILLING_CURRENCY` |
 | `INVOICE_NOTES` | unset |
 | `INVOICE_SERVICE_SUMMARY` | `Railway billing for {RAILWAY_PROJECT_NAME}` |
 | `INVOICE_SERVICE_DETAILS` | Generated summary including project and date range |
@@ -63,6 +60,19 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 cargo run
 ```
 
+## Logging
+
+The CLI emits structured `tracing` logs to stderr. It defaults to `info` level; use
+`RUST_LOG=debug` for request lifecycle, configuration-state, billing-calculation,
+XML-size, and PDF/email-delivery diagnostics:
+
+```bash
+RUST_LOG=debug cargo run
+```
+
+Logs intentionally exclude access tokens, client secrets, SMTP credentials, XML
+contents, and API response bodies.
+
 ## Container image
 
 Build the image:
@@ -82,6 +92,9 @@ The image is intended for cronjob-style execution in container platforms such as
 ## Behavior notes
 
 - The app is intentionally configured only through environment variables.
+- Railway workspace tokens are sent in the `Authorization` header with the `Bearer` scheme, as required by the [Railway Public API](https://docs.railway.com/integrations/api).
+- The billable total is calculated from Railway's resource-usage metrics using the same pricing formula as the Railway CLI.
+- The SantInvoice default currency is always the currency of the Railway billing amount.
 - SantInvoice submission is the primary success condition.
 - PDF download and SMTP delivery are best-effort follow-up steps once submission succeeds.
-- The current implementation automatically invoices the previous calendar month and represents Railway billing as one summarized invoice line item for that period.
+- The app queries Railway for the workspace billing-period boundary, then invoices the immediately preceding completed period for the configured project. It represents that billing as one summarized invoice line item.

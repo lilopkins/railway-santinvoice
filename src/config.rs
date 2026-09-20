@@ -1,19 +1,16 @@
-use anyhow::{Context, anyhow, bail};
-use chrono::{Datelike, Days, NaiveDate, Utc};
+use chrono::{Days, NaiveDate, Utc};
+use color_eyre::eyre::{Result, WrapErr, bail, eyre};
 use reqwest::Url;
 use std::env;
+use tracing::{debug, info};
 
 #[derive(Clone, Debug)]
 pub struct RailwayConfig {
     pub graphql_url: String,
-    pub auth_header_name: String,
-    pub auth_scheme: String,
     pub token: String,
-    pub workspace_id: Option<String>,
+    pub workspace_id: String,
     pub project_id: String,
     pub project_name: String,
-    pub billing_from: NaiveDate,
-    pub billing_to: NaiveDate,
     pub currency: String,
 }
 
@@ -40,7 +37,6 @@ pub struct InvoiceConfig {
     pub customer_address: String,
     pub customer_email: String,
     pub payment_due_by: NaiveDate,
-    pub currency: String,
     pub notes: Option<String>,
     pub service_summary: String,
     pub service_details: String,
@@ -70,24 +66,15 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_env() -> anyhow::Result<Self> {
+    pub fn from_env() -> Result<Self> {
         let railway = RailwayConfig {
             graphql_url: required_absolute_url("RAILWAY_GRAPHQL_URL")?,
-            auth_header_name: optional_env("RAILWAY_AUTH_HEADER_NAME")
-                .unwrap_or_else(|| "Authorization".to_string()),
-            auth_scheme: optional_env("RAILWAY_AUTH_SCHEME").unwrap_or_else(|| "Bearer".to_string()),
             token: required_env("RAILWAY_TOKEN")?,
-            workspace_id: optional_env("RAILWAY_WORKSPACE_ID"),
+            workspace_id: required_env("RAILWAY_WORKSPACE_ID")?,
             project_id: required_env("RAILWAY_PROJECT_ID")?,
             project_name: required_env("RAILWAY_PROJECT_NAME")?,
-            billing_from: first_day_of_previous_month()?,
-            billing_to: last_day_of_previous_month()?,
-            currency: optional_env("RAILWAY_BILLING_CURRENCY").unwrap_or_else(|| "GBP".to_string()),
+            currency: optional_env("RAILWAY_BILLING_CURRENCY").unwrap_or_else(|| "USD".to_string()),
         };
-
-        if railway.billing_to < railway.billing_from {
-            bail!("RAILWAY_BILLING_TO must be on or after RAILWAY_BILLING_FROM");
-        }
 
         let oidc = OidcConfig {
             token_url: required_absolute_url("OIDC_TOKEN_URL")?,
@@ -110,7 +97,6 @@ impl Config {
             customer_email: required_env("INVOICE_CUSTOMER_EMAIL")?,
             payment_due_by: parse_date_env("INVOICE_PAYMENT_DUE_BY")
                 .or_else(|_| default_due_date())?,
-            currency: optional_env("INVOICE_CURRENCY").unwrap_or_else(|| railway.currency.clone()),
             notes: optional_env("INVOICE_NOTES"),
             service_summary: optional_env("INVOICE_SERVICE_SUMMARY")
                 .unwrap_or_else(|| format!("Railway billing for {}", railway.project_name)),
@@ -142,6 +128,20 @@ impl Config {
             None
         };
 
+        info!(
+            project_id = %railway.project_id,
+            workspace_id = %railway.workspace_id,
+            billing_currency = %railway.currency,
+            pdf_email_enabled = pdf_email.is_some(),
+            "validated application configuration"
+        );
+        debug!(
+            oidc_scope_configured = oidc.scope.is_some(),
+            oidc_audience_configured = oidc.audience.is_some(),
+            invoice_notes_configured = invoice.notes.is_some(),
+            "configuration options resolved"
+        );
+
         Ok(Self {
             railway,
             oidc,
@@ -152,8 +152,9 @@ impl Config {
     }
 }
 
-fn required_env(name: &str) -> anyhow::Result<String> {
-    let value = env::var(name).with_context(|| format!("missing required environment variable {name}"))?;
+fn required_env(name: &str) -> Result<String> {
+    let value =
+        env::var(name).wrap_err_with(|| format!("missing required environment variable {name}"))?;
     Ok(normalize_env_value(&value))
 }
 
@@ -178,10 +179,10 @@ fn optional_env(name: &str) -> Option<String> {
     Some(normalize_env_value(&value))
 }
 
-fn required_absolute_url(name: &str) -> anyhow::Result<String> {
+fn required_absolute_url(name: &str) -> Result<String> {
     let value = required_env(name)?;
     let parsed = Url::parse(&value)
-        .with_context(|| format!("{name} must be an absolute URL, got {value:?}"))?;
+        .wrap_err_with(|| format!("{name} must be an absolute URL, got {value:?}"))?;
 
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
         bail!("{name} must use http or https, got {:?}", parsed.scheme());
@@ -194,10 +195,10 @@ fn required_absolute_url(name: &str) -> anyhow::Result<String> {
     Ok(value)
 }
 
-fn parse_date_env(name: &str) -> anyhow::Result<NaiveDate> {
+fn parse_date_env(name: &str) -> Result<NaiveDate> {
     let value = required_env(name)?;
     NaiveDate::parse_from_str(&value, "%Y-%m-%d")
-        .with_context(|| format!("{name} must use YYYY-MM-DD format"))
+        .wrap_err_with(|| format!("{name} must use YYYY-MM-DD format"))
 }
 
 fn parse_u16_env(name: &str) -> Option<u16> {
@@ -209,53 +210,25 @@ fn env_flag(name: &str) -> bool {
 }
 
 fn env_flag_default(name: &str, default: bool) -> bool {
-    optional_env(name)
-        .map(|value| {
-            matches!(
-                value.to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(default)
+    optional_env(name).map_or(default, |value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
-fn default_due_date() -> anyhow::Result<NaiveDate> {
+fn default_due_date() -> Result<NaiveDate> {
     let today = Utc::now().date_naive();
     today
         .checked_add_days(Days::new(14))
-        .ok_or_else(|| anyhow!("failed to calculate default invoice due date"))
-}
-
-fn first_day_of_previous_month() -> anyhow::Result<NaiveDate> {
-    let today = Utc::now().date_naive();
-    let first_day_of_current_month = NaiveDate::from_ymd_opt(today.year(), today.month(), 1)
-        .ok_or_else(|| anyhow!("failed to calculate first day of current month"))?;
-    let last_day_of_previous_month = first_day_of_current_month
-        .checked_sub_days(Days::new(1))
-        .ok_or_else(|| anyhow!("failed to calculate last day of previous month"))?;
-
-    NaiveDate::from_ymd_opt(
-        last_day_of_previous_month.year(),
-        last_day_of_previous_month.month(),
-        1,
-    )
-    .ok_or_else(|| anyhow!("failed to calculate first day of previous month"))
-}
-
-fn last_day_of_previous_month() -> anyhow::Result<NaiveDate> {
-    let today = Utc::now().date_naive();
-    let first_day_of_current_month = NaiveDate::from_ymd_opt(today.year(), today.month(), 1)
-        .ok_or_else(|| anyhow!("failed to calculate first day of current month"))?;
-
-    first_day_of_current_month
-        .checked_sub_days(Days::new(1))
-        .ok_or_else(|| anyhow!("failed to calculate last day of previous month"))
+        .ok_or_else(|| eyre!("failed to calculate default invoice due date"))
 }
 
 fn billing_details_default(config: &RailwayConfig) -> String {
     format!(
-        "Summarized Railway usage charges for project {} covering {} to {}.",
-        config.project_name, config.billing_from, config.billing_to
+        "Summarized Railway usage charges for project {}.",
+        config.project_name
     )
 }
 
@@ -269,7 +242,13 @@ mod tests {
             normalize_env_value("\"https://backboard.railway.com/graphql/v2\""),
             "https://backboard.railway.com/graphql/v2"
         );
-        assert_eq!(normalize_env_value("'https://example.com'"), "https://example.com");
-        assert_eq!(normalize_env_value("https://example.com"), "https://example.com");
+        assert_eq!(
+            normalize_env_value("'https://example.com'"),
+            "https://example.com"
+        );
+        assert_eq!(
+            normalize_env_value("https://example.com"),
+            "https://example.com"
+        );
     }
 }

@@ -1,12 +1,19 @@
-use anyhow::Context;
+use color_eyre::eyre::{Result, WrapErr};
 use quick_xml::Writer;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use std::fmt::Write as _;
 use std::io::Cursor;
+use tracing::debug;
 
 use crate::models::{Invoice, Money, Party};
 
-pub fn build_invoice_xml(invoice: &Invoice) -> anyhow::Result<String> {
+pub fn build_invoice_xml(invoice: &Invoice) -> Result<String> {
+    debug!(
+        item_count = invoice.items.len(),
+        currency = %invoice.currency,
+        notes_included = invoice.notes.is_some(),
+        "serializing invoice XML"
+    );
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
     writer.write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))?;
 
@@ -55,7 +62,9 @@ pub fn build_invoice_xml(invoice: &Invoice) -> anyhow::Result<String> {
 
     writer.write_event(Event::End(BytesEnd::new("invoice")))?;
     let bytes = writer.into_inner().into_inner();
-    String::from_utf8(bytes).context("generated XML was not UTF-8")
+    let xml = String::from_utf8(bytes).wrap_err("generated XML was not UTF-8")?;
+    debug!(xml_bytes = xml.len(), "serialized invoice XML");
+    Ok(xml)
 }
 
 pub fn find_xml_value(body: &str, element: &str) -> Option<String> {
@@ -66,22 +75,14 @@ pub fn find_xml_value(body: &str, element: &str) -> Option<String> {
     Some(body[start..end].trim().to_string())
 }
 
-fn write_text_element(
-    writer: &mut Writer<Cursor<Vec<u8>>>,
-    name: &str,
-    value: &str,
-) -> anyhow::Result<()> {
+fn write_text_element(writer: &mut Writer<Cursor<Vec<u8>>>, name: &str, value: &str) -> Result<()> {
     writer.write_event(Event::Start(BytesStart::new(name)))?;
     writer.write_event(Event::Text(BytesText::new(value)))?;
     writer.write_event(Event::End(BytesEnd::new(name)))?;
     Ok(())
 }
 
-fn write_party(
-    writer: &mut Writer<Cursor<Vec<u8>>>,
-    node_name: &str,
-    party: &Party,
-) -> anyhow::Result<()> {
+fn write_party(writer: &mut Writer<Cursor<Vec<u8>>>, node_name: &str, party: &Party) -> Result<()> {
     writer.write_event(Event::Start(BytesStart::new(node_name)))?;
     write_text_element(writer, "name", &party.name)?;
     write_text_element(writer, "address", &party.address)?;
@@ -95,7 +96,7 @@ fn write_money_element(
     name: &str,
     money: &Money,
     default_currency: &str,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let mut element = BytesStart::new(name);
     if money.currency != default_currency {
         element.push_attribute(("currency", money.currency.as_str()));
