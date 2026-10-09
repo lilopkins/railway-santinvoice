@@ -60,6 +60,21 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 cargo run
 ```
 
+To fetch live Railway billing and generate the invoice without requesting an
+OAuth token, submitting the invoice, downloading a PDF, or sending email, use
+dry-run mode:
+
+```bash
+cargo run -- --dry-run > invoice.xml
+```
+
+The generated XML is written to stdout; logs remain on stderr. The same flag
+can be passed to the container entrypoint:
+
+```bash
+docker run --rm --env-file .env railway-santinvoice --dry-run > invoice.xml
+```
+
 ## Logging
 
 The CLI emits structured `tracing` logs to stderr. It defaults to `info` level; use

@@ -30,7 +30,13 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    if let Err(error) = run().await {
+    let dry_run = match std::env::args().skip(1).collect::<Vec<_>>().as_slice() {
+        [] => false,
+        [argument] if argument == "--dry-run" => true,
+        _ => return Err(eyre!("usage: railway-santinvoice [--dry-run]")),
+    };
+
+    if let Err(error) = run(dry_run).await {
         error!("invoice workflow failed");
         return Err(error);
     }
@@ -38,7 +44,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn run() -> Result<()> {
+async fn run(dry_run: bool) -> Result<()> {
     info!("starting invoice workflow");
     let config = Config::from_env()?;
     debug!(
@@ -69,14 +75,6 @@ async fn run() -> Result<()> {
         "retrieved Railway billing"
     );
 
-    let oidc_client = OidcClient::new(http.clone(), config.oidc.clone());
-    let token = oidc_client.fetch_access_token().await?;
-    debug!(
-        token_type = ?token.token_type,
-        expires_in_seconds = ?token.expires_in,
-        "obtained OIDC access token"
-    );
-
     let invoice = Invoice::from_billing(
         &config,
         &billing,
@@ -91,6 +89,20 @@ async fn run() -> Result<()> {
     );
     let payload = build_invoice_xml(&invoice)?;
     debug!(payload_bytes = payload.len(), "generated invoice XML");
+
+    if dry_run {
+        info!("dry run complete; invoice was not submitted");
+        println!("{payload}");
+        return Ok(());
+    }
+
+    let oidc_client = OidcClient::new(http.clone(), config.oidc.clone());
+    let token = oidc_client.fetch_access_token().await?;
+    debug!(
+        token_type = ?token.token_type,
+        expires_in_seconds = ?token.expires_in,
+        "obtained OIDC access token"
+    );
 
     let santinvoice_client = SantInvoiceClient::new(http.clone(), config.santinvoice.clone());
     let submission = santinvoice_client
