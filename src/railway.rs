@@ -22,16 +22,18 @@ impl RailwayClient {
             project_id = %self.config.project_id,
             "fetching Railway project billing for the previous billing period using the Railway CLI"
         );
+        let args = [
+            "usage",
+            "projects",
+            "--project",
+            &self.config.project_id,
+            "--period",
+            "previous",
+            "--json",
+        ];
+        debug!(command = %format!("railway {}", args.join(" ")), "running Railway CLI");
         let output = Command::new("railway")
-            .args([
-                "usage",
-                "projects",
-                "--project",
-                &self.config.project_id,
-                "--period",
-                "previous",
-                "--json",
-            ])
+            .args(args)
             // The CLI treats RAILWAY_TOKEN as a project token and prefers it over
             // RAILWAY_API_TOKEN, so don't let it be inherited.
             .env_remove("RAILWAY_TOKEN")
@@ -41,6 +43,13 @@ impl RailwayClient {
             .output()
             .await
             .wrap_err("failed to run the `railway` CLI; is it installed and on PATH?")?;
+
+        debug!(
+            status = %output.status,
+            stdout = %String::from_utf8_lossy(&output.stdout).trim(),
+            stderr = %String::from_utf8_lossy(&output.stderr).trim(),
+            "Railway CLI finished"
+        );
 
         if !output.status.success() {
             // With --json the CLI reports errors as JSON on stdout.
