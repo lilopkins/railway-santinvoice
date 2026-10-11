@@ -5,7 +5,7 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 ## Flow
 
 1. Read required configuration from environment variables.
-2. Query Railway GraphQL for the configured project's previous completed billing period.
+2. Run the Railway CLI (`railway usage projects --period previous --json`) for the configured project's previous billing period.
 3. Request an OAuth access token from the configured OIDC token endpoint.
 4. Build a SantInvoice XML invoice with a single summarized line item for the billing period.
 5. Submit the invoice to SantInvoice with an idempotency key.
@@ -15,9 +15,7 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 
 | Variable | Purpose |
 | --- | --- |
-| `RAILWAY_GRAPHQL_URL` | Railway GraphQL endpoint, for example `https://backboard.railway.com/graphql/v2`. |
-| `RAILWAY_TOKEN` | Railway workspace token, without a `Bearer` prefix. The app sends it as `Authorization: Bearer <token>`. |
-| `RAILWAY_WORKSPACE_ID` | Railway workspace identifier. The app uses its billing-period boundary to retrieve the preceding completed period. |
+| `RAILWAY_TOKEN` | Railway API token, passed to the CLI as `RAILWAY_API_TOKEN`. |
 | `RAILWAY_PROJECT_ID` | Railway project identifier to bill. |
 | `RAILWAY_TARGET_PROJECT_NAME` | Human-readable project name used in invoice text. |
 | `OIDC_TOKEN_URL` | OIDC token endpoint for client-credentials access tokens. |
@@ -107,9 +105,9 @@ The image is intended for cronjob-style execution in container platforms such as
 ## Behavior notes
 
 - The app is intentionally configured only through environment variables.
-- Railway workspace tokens are sent in the `Authorization` header with the `Bearer` scheme, as required by the [Railway Public API](https://docs.railway.com/integrations/api).
-- The billable total is calculated from Railway's resource-usage metrics using the same pricing formula as the Railway CLI.
+- Railway data is fetched by the `railway` CLI, which must be on `PATH` (it is installed in the container image).
+- The billable total is the CLI's `currentUsageDollars` for the previous billing period.
 - The SantInvoice default currency is always the currency of the Railway billing amount.
 - SantInvoice submission is the primary success condition.
 - PDF download and SMTP delivery are best-effort follow-up steps once submission succeeds.
-- The app queries Railway for the workspace billing-period boundary, then invoices the immediately preceding completed period for the configured project. It represents that billing as one summarized invoice line item.
+- The app invoices the previous billing period reported by the Railway CLI for the configured project, as one summarized invoice line item.

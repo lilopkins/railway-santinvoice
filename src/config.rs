@@ -6,9 +6,7 @@ use tracing::{debug, info};
 
 #[derive(Clone, Debug)]
 pub struct RailwayConfig {
-    pub graphql_url: String,
     pub token: String,
-    pub workspace_id: String,
     pub project_id: String,
     pub project_name: String,
     pub currency: String,
@@ -68,9 +66,7 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self> {
         let railway = RailwayConfig {
-            graphql_url: required_absolute_url("RAILWAY_GRAPHQL_URL")?,
             token: required_env("RAILWAY_TOKEN")?,
-            workspace_id: required_env("RAILWAY_WORKSPACE_ID")?,
             project_id: required_env("RAILWAY_PROJECT_ID")?,
             project_name: required_env("RAILWAY_TARGET_PROJECT_NAME")?,
             currency: optional_env("RAILWAY_BILLING_CURRENCY").unwrap_or_else(|| "USD".to_string()),
@@ -130,7 +126,6 @@ impl Config {
 
         info!(
             project_id = %railway.project_id,
-            workspace_id = %railway.workspace_id,
             billing_currency = %railway.currency,
             pdf_email_enabled = pdf_email.is_some(),
             "validated application configuration"

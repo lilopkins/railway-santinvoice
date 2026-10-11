@@ -5,9 +5,10 @@ mod clients;
 mod config;
 mod email;
 mod models;
+mod railway;
 mod xml;
 
-use clients::{OidcClient, RailwayClient, SantInvoiceClient};
+use clients::{OidcClient, SantInvoiceClient};
 use color_eyre::eyre::{Result, WrapErr, eyre};
 use config::Config;
 use email::send_invoice_email;
@@ -48,7 +49,6 @@ async fn run(dry_run: bool) -> Result<()> {
     info!("starting invoice workflow");
     let config = Config::from_env()?;
     debug!(
-        graphql_endpoint_configured = !config.railway.graphql_url.is_empty(),
         oidc_endpoint_configured = !config.oidc.token_url.is_empty(),
         santinvoice_endpoint_configured = !config.santinvoice.base_url.is_empty(),
         "configuration loaded"
@@ -63,7 +63,7 @@ async fn run(dry_run: bool) -> Result<()> {
         .wrap_err("failed to build HTTP client")?;
     debug!("HTTP client initialized");
 
-    let railway_client = RailwayClient::new(http.clone(), config.railway.clone());
+    let railway_client = railway::RailwayClient::new(config.railway.clone());
     let billing = railway_client.fetch_project_billing().await?;
     info!(
         project_id = %billing.project_id,

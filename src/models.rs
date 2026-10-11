@@ -152,9 +152,7 @@ mod tests {
     fn invoice_currency_matches_the_railway_billing_amount() {
         let config = Config {
             railway: RailwayConfig {
-                graphql_url: "https://railway.example/graphql".to_string(),
                 token: "token".to_string(),
-                workspace_id: "workspace".to_string(),
                 project_id: "project".to_string(),
                 project_name: "Project".to_string(),
                 currency: "GBP".to_string(),

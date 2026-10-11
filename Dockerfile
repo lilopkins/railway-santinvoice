@@ -10,7 +10,10 @@ RUN cargo build --release
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates \
+    && apt-get install --yes --no-install-recommends ca-certificates nodejs npm \
+    && npm install --global @railway/cli \
+    && railway --version \
+    && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
