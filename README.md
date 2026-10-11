@@ -40,7 +40,7 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 | `INVOICE_NOTES` | unset |
 | `INVOICE_SERVICE_SUMMARY` | `Railway billing for {RAILWAY_TARGET_PROJECT_NAME}` |
 | `INVOICE_SERVICE_DETAILS` | Generated summary including project and date range |
-| `INVOICE_IDEMPOTENCY_PREFIX` | `railway-santinvoice` |
+| `INVOICE_IDEMPOTENCY_PREFIX` | `railway-santinvoice` (key is `<prefix>-<project_id>-<billing_year>-<billing_month>`) |
 | `PDF_EMAIL_ENABLED` | `false` |
 | `PDF_EMAIL_RECIPIENT` | required when PDF email is enabled |
 | `SMTP_FROM_EMAIL` | required when PDF email is enabled |

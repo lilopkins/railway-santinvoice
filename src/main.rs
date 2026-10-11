@@ -15,7 +15,6 @@ use email::send_invoice_email;
 use models::Invoice;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
-use uuid::Uuid;
 use xml::build_invoice_xml;
 
 #[tokio::main]
@@ -43,6 +42,14 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn idempotency_key(prefix: &str, billing: &models::ProjectBilling) -> String {
+    format!(
+        "{prefix}-{}-{}",
+        billing.project_id,
+        billing.billing_from.format("%Y-%m")
+    )
 }
 
 async fn run(dry_run: bool) -> Result<()> {
@@ -78,7 +85,7 @@ async fn run(dry_run: bool) -> Result<()> {
     let invoice = Invoice::from_billing(
         &config,
         &billing,
-        format!("{}-{}", config.invoice.idempotency_prefix, Uuid::new_v4()),
+        idempotency_key(&config.invoice.idempotency_prefix, &billing),
     )?;
     debug!(
         idempotency_key = %invoice.idempotency_key,
