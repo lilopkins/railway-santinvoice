@@ -16,7 +16,7 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 | Variable | Purpose |
 | --- | --- |
 | `RAILWAY_TOKEN` | Railway API token, passed to the CLI as `RAILWAY_API_TOKEN`. |
-| `RAILWAY_PROJECT_ID` | Railway project identifier to bill. |
+| `RAILWAY_TARGET_PROJECT_ID` | Railway project identifier to bill. |
 | `RAILWAY_TARGET_PROJECT_NAME` | Human-readable project name used in invoice text. |
 | `OIDC_TOKEN_URL` | OIDC token endpoint for client-credentials access tokens. |
 | `OIDC_CLIENT_ID` | OIDC client ID. |

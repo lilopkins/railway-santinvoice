@@ -67,7 +67,7 @@ impl Config {
     pub fn from_env() -> Result<Self> {
         let railway = RailwayConfig {
             token: required_env("RAILWAY_TOKEN")?,
-            project_id: required_env("RAILWAY_PROJECT_ID")?,
+            project_id: required_env("RAILWAY_TARGET_PROJECT_ID")?,
             project_name: required_env("RAILWAY_TARGET_PROJECT_NAME")?,
             currency: optional_env("RAILWAY_BILLING_CURRENCY").unwrap_or_else(|| "USD".to_string()),
         };
