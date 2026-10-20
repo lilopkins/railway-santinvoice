@@ -20,7 +20,8 @@ One-shot Rust CLI that reads all configuration from environment variables, fetch
 | `RAILWAY_TARGET_PROJECT_NAME` | Human-readable project name used in invoice text. |
 | `OIDC_TOKEN_URL` | OIDC token endpoint for client-credentials access tokens. |
 | `OIDC_CLIENT_ID` | OIDC client ID. |
-| `OIDC_CLIENT_SECRET` | OIDC client secret. |
+| `OIDC_USERNAME` | OIDC M2M account username. |
+| `OIDC_PASSWORD` | OIDC M2M account password. |
 | `SANTINVOICE_BASE_URL` | SantInvoice API base URL. |
 | `INVOICE_SUPPLIER_NAME` | Supplier name for `<parties><us>`. |
 | `INVOICE_SUPPLIER_ADDRESS` | Supplier address for `<parties><us>`. |
