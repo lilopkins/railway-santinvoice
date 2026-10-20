@@ -16,7 +16,8 @@ pub struct RailwayConfig {
 pub struct OidcConfig {
     pub token_url: String,
     pub client_id: String,
-    pub client_secret: String,
+    pub username: String,
+    pub password: String,
     pub scope: Option<String>,
     pub audience: Option<String>,
 }
@@ -75,7 +76,8 @@ impl Config {
         let oidc = OidcConfig {
             token_url: required_absolute_url("OIDC_TOKEN_URL")?,
             client_id: required_env("OIDC_CLIENT_ID")?,
-            client_secret: required_env("OIDC_CLIENT_SECRET")?,
+            username: required_env("OIDC_USERNAME")?,
+            password: required_env("OIDC_PASSWORD")?,
             scope: optional_env("OIDC_SCOPE"),
             audience: optional_env("OIDC_AUDIENCE"),
         };

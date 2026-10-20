@@ -22,7 +22,8 @@ impl OidcClient {
         let mut params = vec![
             ("grant_type", "client_credentials".to_string()),
             ("client_id", self.config.client_id.clone()),
-            ("client_secret", self.config.client_secret.clone()),
+            ("username", self.config.username.clone()),
+            ("password", self.config.password.clone()),
         ];
 
         if let Some(scope) = &self.config.scope {

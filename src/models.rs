@@ -160,7 +160,8 @@ mod tests {
             oidc: OidcConfig {
                 token_url: "https://oidc.example/token".to_string(),
                 client_id: "client".to_string(),
-                client_secret: "secret".to_string(),
+                username: "username".to_string(),
+                password: "password".to_string(),
                 scope: None,
                 audience: None,
             },
